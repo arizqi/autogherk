@@ -9,7 +9,7 @@ Generate BDD Gherkin test scenarios from product usage videos using AI.
 
 ---
 
-QA engineers spend hours watching product demos and manually translating what they see into BDD test scenarios. **autogherk** automates that entire workflow. Point it at a screen recording -- even one with no audio -- and it produces ready-to-use `.feature` files and step definition stubs. Under the hood, Google Gemini performs frame-by-frame visual analysis of the video, then Anthropic Claude transforms that analysis into structured, well-organized Gherkin scenarios.
+Turn any screen recording into structured test scenarios that AI agents can execute. **AutoGherk** watches how your product is used and generates `.feature` files that power agents to mimic real users, find issues before your customers do, and enable self-healing test systems. Product managers ship faster when AI agents can instantly learn new workflows from a video -- no manual test writing, no brittle scripts. Under the hood, Google Gemini performs frame-by-frame visual analysis of the recording, then Anthropic Claude transforms that into structured, well-organized Gherkin scenarios ready for agent execution.
 
 ## Demo
 
