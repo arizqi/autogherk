@@ -1,0 +1,62 @@
+{
+  "screens": [
+    {
+      "timestamp": "00:00",
+      "description": "Login page with email and password input fields, a 'Log In' button, and a 'Forgot Password?' link."
+    },
+    {
+      "timestamp": "00:05",
+      "description": "Login page with email field filled in as 'user@example.com' and password field showing dots."
+    },
+    {
+      "timestamp": "00:08",
+      "description": "Dashboard page with navigation sidebar, welcome banner saying 'Welcome back!', and recent activity cards."
+    }
+  ],
+  "interactions": [
+    {
+      "timestamp": "00:01",
+      "type": "click",
+      "target": "Email input field",
+      "value": null,
+      "context": "Login page: User focuses the email input field."
+    },
+    {
+      "timestamp": "00:02",
+      "type": "type",
+      "target": "Email input field",
+      "value": "user@example.com",
+      "context": "Login page: User types their email address."
+    },
+    {
+      "timestamp": "00:04",
+      "type": "click",
+      "target": "Password input field",
+      "value": null,
+      "context": "Login page: User focuses the password field."
+    },
+    {
+      "timestamp": "00:05",
+      "type": "type",
+      "target": "Password input field",
+      "value": "********",
+      "context": "Login page: User types their password (masked)."
+    },
+    {
+      "timestamp": "00:06",
+      "type": "click",
+      "target": "Log In button",
+      "value": null,
+      "context": "Login page: User clicks the login button to submit credentials."
+    },
+    {
+      "timestamp": "00:08",
+      "type": "navigate",
+      "target": "Dashboard page",
+      "value": null,
+      "context": "Successful login: User is redirected to the application dashboard."
+    }
+  ],
+  "transcript": [],
+  "summary": "The user navigates to the login page, enters their email and password, clicks the login button, and is successfully redirected to the dashboard."
+}
