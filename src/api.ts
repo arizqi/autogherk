@@ -1,11 +1,12 @@
 // Public API for programmatic use
 // import { processVideo, analyzeVideo, generateGherkin } from 'autogherk';
 
-export { analyzeVideo } from './gemini/client.js';
-export { generateGherkin } from './claude/client.js';
+export { analyzeVideo, generateBuildSpecFromVideo } from './gemini/client.js';
+export { generateGherkin, generateBuildSpec } from './claude/client.js';
 export { formatFeatureFile, formatAllFeatures } from './output/formatter.js';
 export { generateStubs } from './output/stubs.js';
-export { writeOutput } from './output/writer.js';
+export { writeOutput, writeSpecOutput } from './output/writer.js';
+export { formatBuildSpec, formatSpecAsScreenFiles } from './output/spec-formatter.js';
 export { resolveVideoInput, cleanupTempVideo } from './core/video-input.js';
 export { loadConfig, generateDefaultConfig } from './core/config.js';
 
@@ -19,6 +20,14 @@ export type {
   GherkinFeature,
   GherkinScenario,
   GherkinStep,
+  BuildSpec,
+  DesignTokens,
+  ScreenSpec,
+  ComponentSpec,
+  EntitySpec,
+  FieldSpec,
+  InteractionSpec,
+  NavigationFlow,
   Framework,
   AppConfig,
   GenerateOptions,

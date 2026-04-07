@@ -8,6 +8,8 @@ autogherk.config.*
 *.log
 .DS_Store
 test-output/
+/output/
+/spec-output/
 *.mp4
 *.webm
 *.mov

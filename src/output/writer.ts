@@ -1,8 +1,9 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, dirname } from "node:path";
-import type { GherkinResult, Framework, ProgressCallback } from "../core/types.js";
+import type { GherkinResult, BuildSpec, Framework, ProgressCallback } from "../core/types.js";
 import { formatAllFeatures, formatScenarioBlocks } from "./formatter.js";
 import { generateStubs } from "./stubs.js";
+import { formatSpecAsScreenFiles } from "./spec-formatter.js";
 
 export interface WriteResult {
   featureFiles: string[];
@@ -37,7 +38,7 @@ export async function writeOutput(
   dryRun: boolean,
   onProgress?: ProgressCallback,
   append?: boolean,
-  format?: "gherkin" | "json",
+  format?: "gherkin" | "json" | "spec",
 ): Promise<WriteResult> {
   const written: WriteResult = { featureFiles: [], stubFiles: [] };
 
@@ -93,6 +94,31 @@ export async function writeOutput(
       onProgress?.("output", `Wrote ${filePath}`);
     }
     written.stubFiles.push(filePath);
+  }
+
+  return written;
+}
+
+export async function writeSpecOutput(
+  spec: BuildSpec,
+  outputDir: string,
+  dryRun: boolean,
+  onProgress?: ProgressCallback,
+): Promise<WriteResult> {
+  const written: WriteResult = { featureFiles: [], stubFiles: [] };
+
+  const specFiles = formatSpecAsScreenFiles(spec);
+
+  for (const [fileName, content] of specFiles) {
+    const filePath = join(outputDir, fileName);
+    if (dryRun) {
+      onProgress?.("output", `[dry-run] Would write ${filePath}`);
+    } else {
+      await mkdir(dirname(filePath), { recursive: true });
+      await writeFile(filePath, content);
+      onProgress?.("output", `Wrote ${filePath}`);
+    }
+    written.featureFiles.push(filePath);
   }
 
   return written;

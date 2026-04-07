@@ -20,7 +20,8 @@ export const generateCommand = new Command("generate")
   .option("--context <text>", "Additional context about your application for better scenario generation")
   .option("--context-file <path>", "Path to a file containing application context")
   .option("--append", "Append scenarios to existing .feature files instead of overwriting", false)
-  .option("--format <type>", "Output format (gherkin or json)", "gherkin")
+  .option("--format <type>", "Output format (gherkin, json, or spec)", "gherkin")
+  .option("--depth <level>", "Spec detail level: deep (exhaustive, default) or shallow (surface-level)", "deep")
   .action(async (opts) => {
     const options: GenerateOptions = {
       video: opts.video,
@@ -33,7 +34,8 @@ export const generateCommand = new Command("generate")
       context: opts.context,
       contextFile: opts.contextFile,
       append: opts.append,
-      format: opts.format as "gherkin" | "json",
+      format: opts.format as "gherkin" | "json" | "spec",
+      depth: opts.depth as "deep" | "shallow",
     };
 
     await runPipeline(options);

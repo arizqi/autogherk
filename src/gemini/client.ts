@@ -1,8 +1,11 @@
 import { GoogleGenAI } from "@google/genai";
 import { readFileSync } from "node:fs";
 import { basename } from "node:path";
-import type { VideoAnalysis, ProgressCallback } from "../core/types.js";
+import type { VideoAnalysis, BuildSpec, ProgressCallback } from "../core/types.js";
 import { VIDEO_ANALYSIS_PROMPT } from "./prompts.js";
+import { getBuildSpecPrompt } from "../claude/prompts.js";
+
+export type SpecDepth = "deep" | "shallow";
 import { withRetry } from "../core/retry.js";
 
 const POLL_INTERVAL_MS = 5_000;
@@ -43,14 +46,11 @@ function formatDuration(seconds: number): string {
   return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
 }
 
-export async function analyzeVideo(
+async function uploadAndWaitForVideo(
+  ai: InstanceType<typeof GoogleGenAI>,
   videoPath: string,
-  apiKey: string,
-  model: string,
   onProgress?: ProgressCallback,
-): Promise<VideoAnalysis> {
-  const ai = new GoogleGenAI({ apiKey });
-
+): Promise<{ uri: string; mimeType: string; fileName: string }> {
   onProgress?.("gemini", `Uploading ${basename(videoPath)}...`);
 
   const uploadResult = await withRetry(
@@ -100,7 +100,6 @@ export async function analyzeVideo(
   // Video duration warning
   const videoDuration = (file as any).videoMetadata?.videoDuration;
   if (videoDuration) {
-    // videoDuration is a string like "120s" or a number of seconds
     const durationStr = String(videoDuration);
     const seconds = parseFloat(durationStr.replace("s", ""));
     if (!isNaN(seconds) && seconds > VIDEO_DURATION_WARNING_SECONDS) {
@@ -109,6 +108,18 @@ export async function analyzeVideo(
       );
     }
   }
+
+  return { uri: file.uri!, mimeType: file.mimeType!, fileName };
+}
+
+export async function analyzeVideo(
+  videoPath: string,
+  apiKey: string,
+  model: string,
+  onProgress?: ProgressCallback,
+): Promise<VideoAnalysis> {
+  const ai = new GoogleGenAI({ apiKey });
+  const uploaded = await uploadAndWaitForVideo(ai, videoPath, onProgress);
 
   onProgress?.("gemini", "Analyzing video content...");
 
@@ -120,11 +131,15 @@ export async function analyzeVideo(
           {
             role: "user",
             parts: [
-              { fileData: { fileUri: file.uri!, mimeType: file.mimeType! } },
+              { fileData: { fileUri: uploaded.uri, mimeType: uploaded.mimeType } },
               { text: VIDEO_ANALYSIS_PROMPT },
             ],
           },
         ],
+        config: {
+          maxOutputTokens: 65536,
+          responseMimeType: "application/json",
+        },
       }),
     {
       maxRetries: MAX_RETRIES,
@@ -151,8 +166,77 @@ export async function analyzeVideo(
     );
   }
 
-  // Clean up uploaded file
-  await ai.files.delete({ name: fileName }).catch(() => {});
+  await ai.files.delete({ name: uploaded.fileName }).catch(() => {});
 
   return analysis;
+}
+
+export async function generateBuildSpecFromVideo(
+  videoPath: string,
+  apiKey: string,
+  model: string,
+  onProgress?: ProgressCallback,
+  context?: string,
+  depth: SpecDepth = "deep",
+): Promise<BuildSpec> {
+  const ai = new GoogleGenAI({ apiKey });
+  const uploaded = await uploadAndWaitForVideo(ai, videoPath, onProgress);
+
+  onProgress?.("gemini", `Generating ${depth} build spec from video...`);
+
+  const contextPrefix = context ? `Application context: ${context}\n\n` : "";
+  const prompt = getBuildSpecPrompt(depth);
+  const userPrompt = `${contextPrefix}${prompt}\n\nAnalyze the video above and generate the build specification.`;
+
+  const response = await withRetry(
+    () =>
+      ai.models.generateContent({
+        model,
+        contents: [
+          {
+            role: "user",
+            parts: [
+              { fileData: { fileUri: uploaded.uri, mimeType: uploaded.mimeType } },
+              { text: userPrompt },
+            ],
+          },
+        ],
+        config: {
+          maxOutputTokens: 65536,
+          responseMimeType: "application/json",
+        },
+      }),
+    {
+      maxRetries: MAX_RETRIES,
+      onRetry: (error, attempt) => {
+        onProgress?.(
+          "gemini",
+          `Retrying Gemini spec generation (attempt ${attempt + 1}/${MAX_RETRIES + 1})...`,
+        );
+      },
+    },
+  ).catch((error) => {
+    throw classifyGeminiError(error);
+  });
+
+  const text = response.text ?? "";
+  const cleaned = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+
+  let result: BuildSpec;
+  try {
+    result = JSON.parse(cleaned);
+  } catch {
+    const preview = cleaned.slice(0, 300);
+    throw new Error(
+      `Failed to parse Gemini build spec JSON. Preview: ${preview}...`,
+    );
+  }
+
+  if (!result.screens || !Array.isArray(result.screens)) {
+    throw new Error("Gemini response missing 'screens' array");
+  }
+
+  await ai.files.delete({ name: uploaded.fileName }).catch(() => {});
+
+  return result;
 }
