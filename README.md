@@ -1,6 +1,6 @@
 # AutoGherk
 
-Generate BDD Gherkin test scenarios from product usage videos using AI.
+Turn screen recordings into executable test scenarios and full application blueprints using AI.
 
 [![npm version](https://img.shields.io/npm/v/autogherk)](https://www.npmjs.com/package/autogherk)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -9,15 +9,21 @@ Generate BDD Gherkin test scenarios from product usage videos using AI.
 
 ---
 
-Turn any screen recording into structured test scenarios that AI agents can execute. **AutoGherk** watches how your product is used and generates `.feature` files that power agents to mimic real users, find issues before your customers do, and enable self-healing test systems. Product managers ship faster when AI agents can instantly learn new workflows from a video -- no manual test writing, no brittle scripts. Under the hood, Google Gemini performs frame-by-frame visual analysis of the recording, then Anthropic Claude transforms that into structured, well-organized Gherkin scenarios ready for agent execution.
+**AutoGherk** watches how your product is used and generates two kinds of output:
+
+- **Gherkin mode** -- `.feature` files that power AI agents to mimic real users, find issues before your customers do, and enable self-healing test systems.
+- **Spec mode** -- Full application blueprints with design tokens, component trees, data models, navigation maps, and reference screenshots. Hand the output to Claude Code and get a working replica built.
+
+Product managers ship faster when AI agents can instantly learn new workflows from a video -- no manual test writing, no brittle scripts, no Figma handoff required.
 
 ## Demo
 
+### Gherkin mode (test scenarios)
+
 ```
-$ autogherk generate --video recording.webm --output ./features/
+$ autogherk generate --video recording.webm
 
 ✔ Configuration loaded
-✔ Downloaded video from URL
 ✔ Video analyzed: 12 interactions found across 6 screens
 ✔ Generated 4 feature(s) with 19 scenario(s)
 ✔ Output written
@@ -31,6 +37,26 @@ $ autogherk generate --video recording.webm --output ./features/
   features/step_definitions/steps.ts
 ```
 
+### Spec mode (build blueprints)
+
+```
+$ autogherk generate --video recording.webm --format spec
+
+✔ Configuration loaded
+✔ Generated build spec: 12 screen(s), 4 entities
+✔ Extracted 12 reference screenshot(s)
+✔ Output written
+
+✓ Generated 15 spec file(s)
+  spec-output/spec-overview.md
+  spec-output/tokens.json
+  spec-output/screenshots/login.png
+  spec-output/screenshots/dashboard.png
+  spec-output/login.spec.md
+  spec-output/dashboard.spec.md
+  spec-output/spec.json
+```
+
 ## Quick Start
 
 ```bash
@@ -38,8 +64,11 @@ $ autogherk generate --video recording.webm --output ./features/
 export GEMINI_API_KEY=your-key
 export ANTHROPIC_API_KEY=your-key
 
-# Run it
+# Generate test scenarios
 npx autogherk generate --video demo.mp4
+
+# Generate build blueprints
+npx autogherk generate --video demo.mp4 --format spec --output ./spec-output
 ```
 
 ## Installation
@@ -66,17 +95,20 @@ pnpm add -g autogherk
 
 ### `generate` command
 
-Generate Gherkin scenarios from a product usage video.
-
 ```
 autogherk generate [options]
 ```
 
 | Flag | Description | Default |
 | --- | --- | --- |
-| `-v, --video <path>` | Input video file path or URL (required) | -- |
+| `-v, --video <path>` | Input video file path or URL (required, repeatable) | -- |
 | `-o, --output <dir>` | Output directory for generated files | `./features/` |
 | `-f, --framework <name>` | Target framework (`cucumber-js`, `cucumber-java`, `behave`, `specflow`) | `cucumber-js` |
+| `--format <type>` | Output format: `gherkin`, `json`, or `spec` | `gherkin` |
+| `--depth <level>` | Spec detail level: `deep` (exhaustive) or `shallow` (surface-level) | `deep` |
+| `--context <text>` | Additional context about your application for better generation | -- |
+| `--context-file <path>` | Path to a file containing application context | -- |
+| `--append` | Append scenarios to existing `.feature` files instead of overwriting | `false` |
 | `--verbose` | Print the intermediate Gemini video analysis to stdout | `false` |
 | `--dry-run` | Preview generated output without writing any files to disk | `false` |
 | `--save-analysis` | Save the raw Gemini analysis as `analysis.json` in the output directory | `false` |
@@ -92,35 +124,130 @@ autogherk init
 
 ### Examples
 
-**Basic usage with a local file:**
+**Generate test scenarios from a local video:**
 
 ```bash
 autogherk generate --video ./recordings/checkout-flow.mp4
 ```
 
-**Using a URL:**
+**Generate test scenarios from a URL:**
 
 ```bash
 autogherk generate --video https://storage.example.com/demo.webm
 ```
 
-**Targeting a specific framework:**
+**Generate a full build spec with design tokens and screenshots:**
+
+```bash
+autogherk generate --video demo.mp4 --format spec --output ./spec-output
+```
+
+**Quick surface-level spec (faster, lower cost):**
+
+```bash
+autogherk generate --video demo.mp4 --format spec --depth shallow
+```
+
+**Add application context for better results:**
+
+```bash
+autogherk generate --video demo.mp4 --context "This is a real estate brokerage management platform"
+```
+
+**Target a specific test framework:**
 
 ```bash
 autogherk generate --video demo.mp4 --framework behave --output ./features/
 ```
 
-**Verbose mode (inspect the Gemini analysis):**
+## Output Formats
 
-```bash
-autogherk generate --video demo.mp4 --verbose
+### Gherkin (default)
+
+Generates `.feature` files with BDD scenarios and step definition stubs. Two-stage pipeline: Gemini analyzes the video, then Claude generates structured Gherkin.
+
+```gherkin
+@login @smoke
+Feature: User Login
+  Background:
+    Given the user is on the login page
+
+  Scenario: Successfully log in with valid credentials
+    When the user enters their email and password
+    And the user clicks the login button
+    Then the user should be redirected to the dashboard
+
+  Scenario Outline: Login with invalid credentials
+    When the user enters <email> and <password>
+    Then the user should see "<error_message>"
+
+    Examples:
+      | email            | password | error_message       |
+      | invalid@test.com | wrong    | Invalid credentials |
+      |                  | password | Email is required   |
 ```
 
-**Dry run (preview without writing files):**
+### Spec (build blueprints)
 
-```bash
-autogherk generate --video demo.mp4 --dry-run
+Generates a complete application specification from the video. Single-stage pipeline: Gemini watches the video directly and produces architecture blueprints. Reference screenshots are extracted via ffmpeg.
+
+**Output structure:**
+
 ```
+spec-output/
+  spec-overview.md        # Full architecture doc
+  tokens.json             # Design tokens (plug into Tailwind/CSS vars)
+  spec.json               # Raw structured JSON for programmatic use
+  screenshots/            # One reference screenshot per screen
+    login.png
+    dashboard.png
+    ...
+  login.spec.md           # Per-screen spec with components + data model
+  dashboard.spec.md
+  ...
+```
+
+**What the spec captures:**
+
+| Section | Details |
+| --- | --- |
+| **Design tokens** | Colors (including status/tag/chart colors), typography, spacing, border radius, shadows, layout dimensions |
+| **Screens** | Route, layout, component tree, interactions, data requirements, reference screenshot |
+| **Data model** | Entities, typed fields, enums with all values, foreign keys, relationships |
+| **Navigation** | Screen-to-screen flows, triggers, role-based conditions |
+| **Global components** | Sidebar, header, shared patterns (tables, cards, modals) |
+
+**Deep mode** (default) produces exhaustive specs: every table column, form field validation, inferred modals/dialogs, empty/loading/error states, and screens that are logically implied but not shown in the video.
+
+**Shallow mode** produces a lighter overview suitable for quick exploration.
+
+### JSON
+
+Outputs the raw Gherkin result as `scenarios.json` for programmatic consumption.
+
+## How It Works
+
+### Gherkin mode
+
+```
+  Video ──> Gemini (visual analysis) ──> Claude (BDD generation) ──> .feature files + stubs
+```
+
+1. **Gemini** uploads and analyzes the video frame-by-frame, extracting screens, interactions, and UI states. Works with silent videos.
+2. **Claude** transforms the analysis into structured Gherkin scenarios with proper Given/When/Then, tags, Scenario Outlines, and edge cases.
+3. **Formatter** writes `.feature` files and framework-specific step definition stubs.
+
+### Spec mode
+
+```
+  Video ──> Gemini (architecture extraction) ──> spec files + screenshots
+```
+
+1. **Gemini** watches the video directly and generates the full build specification in a single pass -- design tokens, component trees, data models, navigation, and interactions.
+2. **ffmpeg** extracts a reference screenshot for each screen at the timestamp Gemini identified.
+3. **Formatter** writes markdown specs, `tokens.json`, per-screen files, and the raw `spec.json`.
+
+Spec mode uses a single-stage pipeline (Gemini only) because it produces more accurate results when Gemini has direct visual context rather than working from a text summary.
 
 ## Configuration
 
@@ -148,7 +275,7 @@ Use the `env:` prefix to reference environment variables instead of hardcoding s
 Configuration values are resolved in this order (highest priority first):
 
 1. **Environment variables** -- `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_MODEL`, `CLAUDE_MODEL`
-2. **CLI flags** -- `--framework`, `--output`
+2. **CLI flags** -- `--framework`, `--output`, `--format`, `--depth`
 3. **Config file** -- `.autogherkrc.json` (searched up from the current directory via [cosmiconfig](https://github.com/cosmiconfig/cosmiconfig))
 
 ## Supported Frameworks
@@ -160,80 +287,19 @@ Configuration values are resolved in this order (highest priority first):
 | `behave` | Python | `steps/steps.py` |
 | `specflow` | C# | `StepDefinitions/Steps.cs` |
 
-## How It Works
+## Prerequisites
 
-```
-                 +------------------+
-  Video file     |   Stage 1        |
-  or URL    ---->|   Gemini         |----> Structured JSON analysis
-                 |   (visual AI)    |      (screens, interactions, transcript)
-                 +------------------+
-                          |
-                          v
-                 +------------------+
-                 |   Stage 2        |
-                 |   Claude         |----> GherkinResult (features, scenarios, steps)
-                 |   (BDD expert)   |
-                 +------------------+
-                          |
-                          v
-                 +------------------+
-                 |   Stage 3        |
-                 |   Output         |----> .feature files + step definition stubs
-                 |   (formatter)    |
-                 +------------------+
-```
-
-**Stage 1 -- Gemini video analysis.** The video is uploaded to Google Gemini, which performs frame-by-frame visual analysis. It extracts every click, form input, navigation, scroll, and UI state change it can observe. This works with silent videos -- no audio or voiceover is required.
-
-**Stage 2 -- Claude scenario generation.** The structured analysis from Stage 1 is sent to Anthropic Claude, which acts as an expert BDD test engineer. It groups interactions into logical features, writes declarative Given/When/Then scenarios, applies tags, uses Scenario Outlines where appropriate, and covers edge cases.
-
-**Stage 3 -- File output.** The generated Gherkin is formatted into standard `.feature` files and written to disk. Step definition stubs are also generated for the target framework, giving you a ready-to-implement starting point.
-
-## Example Output
-
-```gherkin
-@login @smoke
-Feature: User Login
-  Users should be able to log in with valid credentials
-  and see appropriate errors for invalid attempts.
-
-  Background:
-    Given the user is on the login page
-
-  @happy-path
-  Scenario: Successfully log in with valid credentials
-    Given the user has a registered account
-    When the user enters their email and password
-    And the user clicks the login button
-    Then the user should be redirected to the dashboard
-    And the user should see a welcome message
-
-  @negative
-  Scenario Outline: Login with invalid credentials
-    When the user enters <email> and <password>
-    And the user clicks the login button
-    Then the user should see "<error_message>"
-
-    Examples:
-      | email            | password | error_message       |
-      | invalid@test.com | wrong    | Invalid credentials |
-      |                  | password | Email is required   |
-```
-
-## API Keys
-
-autogherk requires API keys from both Google and Anthropic:
-
+- **Node.js >= 22**
 - **Gemini API key** -- Get one at [ai.google.dev](https://ai.google.dev/)
-- **Anthropic API key** -- Get one at [console.anthropic.com](https://console.anthropic.com/)
+- **Anthropic API key** -- Get one at [console.anthropic.com](https://console.anthropic.com/) (required for Gherkin mode, not needed for spec mode)
+- **ffmpeg** -- Required for screenshot extraction in spec mode. Install via `brew install ffmpeg` or your system package manager.
 
 ## Environment Variables
 
 | Variable | Description | Required | Default |
 | --- | --- | --- | --- |
 | `GEMINI_API_KEY` | Google Gemini API key | Yes | -- |
-| `ANTHROPIC_API_KEY` | Anthropic Claude API key | Yes | -- |
+| `ANTHROPIC_API_KEY` | Anthropic Claude API key | Gherkin mode only | -- |
 | `GEMINI_MODEL` | Gemini model to use for video analysis | No | `gemini-2.5-pro` |
 | `CLAUDE_MODEL` | Claude model to use for Gherkin generation | No | `claude-opus-4-6` |
 
