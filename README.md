@@ -17,11 +17,11 @@ Turn screen recordings into executable test scenarios and full application bluep
 Product managers ship faster when AI agents can instantly learn new workflows from a video -- no manual test writing, no brittle scripts, no Figma handoff required.
 
 
-https://github.com/user-attachments/assets/8e0a5281-77cc-4a3a-96c5-63966674cc6c
-
-
-
 ## Demo
+
+
+https://github.com/user-attachments/assets/47614571-784d-4f1b-9c65-e62b93f333bb
+
 
 ### Gherkin mode (test scenarios)
 
