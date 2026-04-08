@@ -16,7 +16,7 @@ Turn screen recordings into executable test scenarios and full application bluep
 
 Product managers ship faster when AI agents can instantly learn new workflows from a video -- no manual test writing, no brittle scripts, no Figma handoff required.
 
-[▶ Watch the demo (MP4)](https://github.com/arizqi/autogherk/releases/download/v0.1.0/autogherk_demo.mp4)
+https://storage.googleapis.com/vocaltour-uploads/public_uploads/autogherk_demo.mp4
 
 ## Demo
 
