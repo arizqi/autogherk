@@ -49,7 +49,7 @@ export async function loadConfig(
       "Gemini API key required. Set GEMINI_API_KEY env var or add geminiApiKey to .autogherkrc.json",
     );
   }
-  if (!anthropicApiKey) {
+  if (!anthropicApiKey && options.format !== "spec") {
     throw new Error(
       "Anthropic API key required. Set ANTHROPIC_API_KEY env var or add anthropicApiKey to .autogherkrc.json",
     );

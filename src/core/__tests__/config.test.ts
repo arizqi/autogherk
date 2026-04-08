@@ -45,11 +45,18 @@ describe("loadConfig", () => {
     ).rejects.toThrow(/Gemini API key required/);
   });
 
-  it("throws descriptive error when Anthropic API key is missing", async () => {
+  it("throws descriptive error when Anthropic API key is missing for gherkin mode", async () => {
     process.env.GEMINI_API_KEY = "test-gemini-key";
     await expect(
       loadConfig({ video: "test.mp4", output: "./out" }),
     ).rejects.toThrow(/Anthropic API key required/);
+  });
+
+  it("does not require Anthropic API key for spec mode", async () => {
+    process.env.GEMINI_API_KEY = "test-gemini-key";
+    const config = await loadConfig({ video: "test.mp4", output: "./out", format: "spec" });
+    expect(config.geminiApiKey).toBe("test-gemini-key");
+    expect(config.anthropicApiKey).toBeUndefined();
   });
 
   it("resolves env: prefix values from environment", async () => {

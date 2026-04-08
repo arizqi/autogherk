@@ -157,7 +157,7 @@ export type Framework =
 
 export interface AppConfig {
   geminiApiKey: string;
-  anthropicApiKey: string;
+  anthropicApiKey: string | undefined;
   geminiModel: string;
   claudeModel: string;
   framework: Framework;

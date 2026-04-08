@@ -303,6 +303,16 @@ Configuration values are resolved in this order (highest priority first):
 | `GEMINI_MODEL` | Gemini model to use for video analysis | No | `gemini-2.5-pro` |
 | `CLAUDE_MODEL` | Claude model to use for Gherkin generation | No | `claude-opus-4-6` |
 
+## Roadmap
+
+- **Explore mode** — `autogherk explore --url <target> --auth-cookie <session>`. Point at a live authenticated app and it autonomously discovers screens, maps navigation, and generates `.feature` files. No video required.
+- **Monitoring agent** — Replay `.feature` files against a live app on a schedule using Claude Code headless + Playwright MCP. Auto-file GitHub issues on regressions with screenshots and failure details.
+- **Playwright test generation** — Generate executable `.spec.ts` files from `.feature` files, not just Gherkin stubs.
+- **Feature diffing** — `autogherk diff --baseline ./old/ --current ./new/` for automatic UI changelogs.
+- **Documentation generation** — Transform features into user guides and onboarding checklists.
+
+See the [issues](https://github.com/arizqi/autogherk/issues) for what's actively being worked on.
+
 ## Contributing
 
 Contributions are welcome. Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on how to get started.
