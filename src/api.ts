@@ -9,6 +9,9 @@ export { writeOutput, writeSpecOutput } from './output/writer.js';
 export { formatBuildSpec, formatSpecAsScreenFiles } from './output/spec-formatter.js';
 export { resolveVideoInput, cleanupTempVideo } from './core/video-input.js';
 export { loadConfig, generateDefaultConfig } from './core/config.js';
+export { runExploration } from './core/explorer.js';
+export { extractFlows, identifyCoverageGaps } from './core/flow-extractor.js';
+export { loadGraph, saveGraph, createEmptyGraph } from './core/graph-store.js';
 
 // Re-export all types
 export type {
@@ -32,6 +35,14 @@ export type {
   AppConfig,
   GenerateOptions,
   ProgressCallback,
+  ExploreOptions,
+  ExplorationGraph,
+  ScreenNode,
+  Edge,
+  DiscoveredInteraction,
+  ExplorationMetadata,
+  AuthStrategy,
+  SerializedGraph,
 } from './core/types.js';
 
 import type {

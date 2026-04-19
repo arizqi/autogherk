@@ -182,3 +182,85 @@ export interface GenerateOptions {
 }
 
 export type ProgressCallback = (stage: string, message: string) => void;
+
+// Explore mode types — autonomous app discovery via browser crawling
+
+export interface ExploreOptions {
+  url: string;
+  output: string;
+  auth?: AuthStrategy;
+  maxDepth: number;
+  maxTime: number; // milliseconds
+  maxScreens: number;
+  dryRun: boolean;
+  verbose: boolean;
+  skipPatterns: string[];
+  config?: string;
+  context?: string;
+}
+
+export interface AuthStrategy {
+  type: "cookie" | "token" | "login" | "interactive";
+  cookie?: string;
+  token?: string;
+  loginUrl?: string;
+  email?: string;
+  password?: string;
+}
+
+export interface ExplorationGraph {
+  nodes: Map<string, ScreenNode>;
+  edges: Edge[];
+  metadata: ExplorationMetadata;
+}
+
+export interface ScreenNode {
+  id: string;
+  url: string;
+  urlPattern: string;
+  title: string;
+  domHash: string;
+  screenshotPath: string;
+  interactions: DiscoveredInteraction[];
+  visitCount: number;
+  firstSeen: string;
+  lastSeen: string;
+}
+
+export interface Edge {
+  id: string;
+  from: string;
+  to: string | null; // null = unexplored
+  interaction: DiscoveredInteraction;
+  gherkinStep?: string;
+  status: "unexplored" | "traversed" | "dead-end" | "destructive-skipped";
+  discovered: string;
+}
+
+export interface DiscoveredInteraction {
+  selector: string;
+  type: "click" | "fill" | "select" | "hover" | "submit" | "navigate";
+  elementText: string;
+  elementRole: string;
+  href?: string;
+  isDestructive: boolean;
+  explored: boolean;
+}
+
+export interface ExplorationMetadata {
+  startUrl: string;
+  startTime: string;
+  endTime?: string;
+  totalScreens: number;
+  totalEdges: number;
+  totalInteractions: number;
+  exploredInteractions: number;
+  status: "running" | "completed" | "budget-exceeded" | "error";
+}
+
+// Serializable version of ExplorationGraph (Map → Record for JSON)
+export interface SerializedGraph {
+  nodes: Record<string, ScreenNode>;
+  edges: Edge[];
+  metadata: ExplorationMetadata;
+}
