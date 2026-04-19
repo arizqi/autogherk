@@ -28,6 +28,10 @@ export const exploreCommand = new Command("explore")
   .option("--skip-patterns <patterns...>", "Additional text patterns to skip (treated as destructive)")
   .option("--verbose", "Show detailed exploration progress", false)
   .option("--context <text>", "Additional context about the app")
+  .option(
+    "--lens <names>",
+    "Lens(es) to shape exploration priority and scenario output — one of qa, designer, growth, security, support, pm, a11y, or a custom lens. Multiple comma-separated.",
+  )
   .option("-c, --config <path>", "Path to config file")
   .action(async (opts) => {
     // Build auth strategy from flags
@@ -52,6 +56,7 @@ export const exploreCommand = new Command("explore")
       skipPatterns: opts.skipPatterns ?? [],
       config: opts.config,
       context: opts.context,
+      lens: opts.lens,
     };
 
     await runExploration(options);

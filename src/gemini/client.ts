@@ -2,8 +2,9 @@ import { GoogleGenAI } from "@google/genai";
 import { readFileSync } from "node:fs";
 import { basename } from "node:path";
 import type { VideoAnalysis, BuildSpec, ProgressCallback } from "../core/types.js";
-import { VIDEO_ANALYSIS_PROMPT } from "./prompts.js";
+import { getVideoAnalysisPrompt } from "./prompts.js";
 import { getBuildSpecPrompt } from "../claude/prompts.js";
+import type { Lens } from "../core/lenses.js";
 
 export type SpecDepth = "deep" | "shallow";
 import { withRetry } from "../core/retry.js";
@@ -117,11 +118,14 @@ export async function analyzeVideo(
   apiKey: string,
   model: string,
   onProgress?: ProgressCallback,
+  lenses: Lens[] = [],
 ): Promise<VideoAnalysis> {
   const ai = new GoogleGenAI({ apiKey });
   const uploaded = await uploadAndWaitForVideo(ai, videoPath, onProgress);
 
   onProgress?.("gemini", "Analyzing video content...");
+
+  const analysisPrompt = getVideoAnalysisPrompt(lenses);
 
   const response = await withRetry(
     () =>
@@ -132,7 +136,7 @@ export async function analyzeVideo(
             role: "user",
             parts: [
               { fileData: { fileUri: uploaded.uri, mimeType: uploaded.mimeType } },
-              { text: VIDEO_ANALYSIS_PROMPT },
+              { text: analysisPrompt },
             ],
           },
         ],
@@ -178,6 +182,7 @@ export async function generateBuildSpecFromVideo(
   onProgress?: ProgressCallback,
   context?: string,
   depth: SpecDepth = "deep",
+  lenses: Lens[] = [],
 ): Promise<BuildSpec> {
   const ai = new GoogleGenAI({ apiKey });
   const uploaded = await uploadAndWaitForVideo(ai, videoPath, onProgress);
@@ -185,7 +190,7 @@ export async function generateBuildSpecFromVideo(
   onProgress?.("gemini", `Generating ${depth} build spec from video...`);
 
   const contextPrefix = context ? `Application context: ${context}\n\n` : "";
-  const prompt = getBuildSpecPrompt(depth);
+  const prompt = getBuildSpecPrompt(depth, lenses);
   const userPrompt = `${contextPrefix}${prompt}\n\nAnalyze the video above and generate the build specification.`;
 
   const response = await withRetry(

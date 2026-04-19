@@ -22,6 +22,10 @@ export const generateCommand = new Command("generate")
   .option("--append", "Append scenarios to existing .feature files instead of overwriting", false)
   .option("--format <type>", "Output format (gherkin, json, or spec)", "gherkin")
   .option("--depth <level>", "Spec detail level: deep (exhaustive, default) or shallow (surface-level)", "deep")
+  .option(
+    "--lens <names>",
+    "Lens(es) to shape output — one of qa, designer, growth, security, support, pm, a11y, or a custom lens. Multiple comma-separated (e.g. \"designer,growth\").",
+  )
   .action(async (opts) => {
     const options: GenerateOptions = {
       video: opts.video,
@@ -36,6 +40,7 @@ export const generateCommand = new Command("generate")
       append: opts.append,
       format: opts.format as "gherkin" | "json" | "spec",
       depth: opts.depth as "deep" | "shallow",
+      lens: opts.lens,
     };
 
     await runPipeline(options);

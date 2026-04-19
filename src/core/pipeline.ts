@@ -12,6 +12,34 @@ import { resolveVideoInputs, cleanupAllTempVideos } from "./video-input.js";
 import { analyzeVideo, generateBuildSpecFromVideo } from "../gemini/client.js";
 import { generateGherkin } from "../claude/client.js";
 import { writeOutput, writeSpecOutput } from "../output/writer.js";
+import { loadLenses, parseLensFlag, getLensTags, type Lens } from "./lenses.js";
+import type { GherkinResult } from "./types.js";
+
+/**
+ * Ensure every scenario and feature in a GherkinResult carries the given lens tags.
+ * Does not duplicate tags already present.
+ */
+function applyLensTags(result: GherkinResult, lenses: Lens[]): GherkinResult {
+  if (lenses.length === 0) return result;
+  const lensTags = getLensTags(lenses);
+
+  const addTags = (existing: string[] = []) => {
+    const set = new Set(existing);
+    for (const tag of lensTags) set.add(tag);
+    return Array.from(set);
+  };
+
+  return {
+    features: result.features.map((feature) => ({
+      ...feature,
+      tags: addTags(feature.tags),
+      scenarios: feature.scenarios.map((scenario) => ({
+        ...scenario,
+        tags: addTags(scenario.tags),
+      })),
+    })),
+  };
+}
 
 /**
  * Merge multiple VideoAnalysis results into a single combined analysis.
@@ -39,6 +67,14 @@ export async function runPipeline(options: GenerateOptions): Promise<void> {
     spinner.start("Loading configuration...");
     const config = await loadConfig(options);
     spinner.succeed("Configuration loaded");
+
+    // Load lenses if specified
+    const lensNames = parseLensFlag(options.lens);
+    const lenses: Lens[] = lensNames.length > 0 ? await loadLenses(lensNames) : [];
+    if (lenses.length > 0) {
+      const names = lenses.map((l) => `${l.name}${l.isCustom ? " (custom)" : ""}`).join(", ");
+      console.log(chalk.cyan(`Lens: ${names}`));
+    }
 
     // Validate output directory is not an absolute escape
     const resolvedOutput = resolve(config.outputDir);
@@ -91,6 +127,7 @@ export async function runPipeline(options: GenerateOptions): Promise<void> {
           },
           context,
           options.depth ?? "deep",
+          lenses,
         );
         spinner.succeed(
           `Generated build spec: ${specResult.screens.length} screen(s), ${specResult.dataModel.length} entit${specResult.dataModel.length === 1 ? "y" : "ies"}`,
@@ -134,6 +171,11 @@ export async function runPipeline(options: GenerateOptions): Promise<void> {
         }
       } else {
         // Gherkin/JSON mode: two-stage — Gemini analyzes, Claude generates
+        // config validates that anthropicApiKey exists when format !== spec
+        if (!config.anthropicApiKey) {
+          throw new Error("Anthropic API key required for gherkin/json mode");
+        }
+        const anthropicApiKey = config.anthropicApiKey;
         const analyses: VideoAnalysis[] = [];
 
         for (let i = 0; i < resolvedVideos.length; i++) {
@@ -151,6 +193,7 @@ export async function runPipeline(options: GenerateOptions): Promise<void> {
             (_stage, msg) => {
               spinner.text = `${msg}${label}`;
             },
+            lenses,
           );
           spinner.succeed(
             `Video analyzed${label}: ${analysis.interactions.length} interactions found across ${analysis.screens.length} screens`,
@@ -177,16 +220,18 @@ export async function runPipeline(options: GenerateOptions): Promise<void> {
         }
 
         spinner.start("Generating Gherkin scenarios with Claude...");
-        const gherkinResult = await generateGherkin(
+        const rawGherkin = await generateGherkin(
           analysis,
-          config.anthropicApiKey,
+          anthropicApiKey,
           config.claudeModel,
           config.framework,
           (_stage, msg) => {
             spinner.text = msg;
           },
           context,
+          lenses,
         );
+        const gherkinResult = applyLensTags(rawGherkin, lenses);
         spinner.succeed(
           `Generated ${gherkinResult.features.length} feature(s) with ${countScenarios(gherkinResult)} scenario(s)`,
         );

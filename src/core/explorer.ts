@@ -26,10 +26,50 @@ import { computeDomHash, normalizeUrlPattern, findMatchingScreen } from "./scree
 import { createEmptyGraph, saveGraph, appendLog, loadGraph } from "./graph-store.js";
 import { extractFlows, identifyCoverageGaps } from "./flow-extractor.js";
 import { writeExploreOutput } from "../output/explore-writer.js";
+import { loadLenses, parseLensFlag, getLensTags, type Lens } from "./lenses.js";
 
 interface BudgetCheck {
   exceeded: boolean;
   reason: string;
+}
+
+/**
+ * Keywords each lens cares about when ranking unexplored edges.
+ * Higher-priority edges get explored first under a time/screen budget.
+ */
+const LENS_EDGE_KEYWORDS: Record<string, string[]> = {
+  qa: ["submit", "save", "validate", "error", "required", "confirm"],
+  designer: ["empty", "loading", "error", "state", "modal", "drawer", "tooltip", "hover"],
+  growth: ["sign up", "signup", "get started", "try", "upgrade", "plan", "pricing", "onboard", "invite", "share", "refer", "activate"],
+  security: ["admin", "settings", "permission", "role", "user", "api key", "token", "auth", "login", "session"],
+  support: ["help", "support", "docs", "tutorial", "guide", "learn more", "?"],
+  pm: ["dashboard", "report", "overview", "analytics", "insights"],
+  a11y: ["menu", "nav", "skip", "focus", "aria", "main"],
+};
+
+/**
+ * Score an edge for a set of lenses. Higher score = explore first.
+ */
+function scoreEdgeForLenses(edge: Edge, lenses: Lens[]): number {
+  if (lenses.length === 0) return 0;
+  const text = (edge.interaction.elementText + " " + edge.interaction.elementRole).toLowerCase();
+  let score = 0;
+  for (const lens of lenses) {
+    const keywords = LENS_EDGE_KEYWORDS[lens.name] ?? [];
+    for (const kw of keywords) {
+      if (text.includes(kw)) score += 1;
+    }
+    // Custom lenses: extract keywords from priorities
+    if (lens.isCustom) {
+      for (const priority of lens.priorities) {
+        const words = priority.toLowerCase().split(/\s+/).filter((w) => w.length > 3);
+        for (const word of words) {
+          if (text.includes(word)) score += 0.5;
+        }
+      }
+    }
+  }
+  return score;
 }
 
 function checkBudget(
@@ -208,6 +248,7 @@ async function mapFlowsDFS(
   graphPath: string,
   logPath: string,
   spinner: ReturnType<typeof ora>,
+  lenses: Lens[] = [],
 ): Promise<void> {
   if (options.dryRun) {
     await appendLog("DFS skipped: dry-run mode", logPath);
@@ -216,12 +257,15 @@ async function mapFlowsDFS(
 
   const { page } = session;
 
-  // Sort screens by number of unexplored edges (most first)
-  const screenIds = Array.from(graph.nodes.keys()).sort((a, b) => {
-    const aUnexplored = graph.edges.filter((e) => e.from === a && e.status === "unexplored").length;
-    const bUnexplored = graph.edges.filter((e) => e.from === b && e.status === "unexplored").length;
-    return bUnexplored - aUnexplored;
-  });
+  // Sort screens by lens-weighted unexplored interest
+  const screenScore = (screenId: string): number => {
+    const unexplored = graph.edges.filter((e) => e.from === screenId && e.status === "unexplored");
+    if (lenses.length === 0) return unexplored.length;
+    // Sum of lens scores + base count
+    return unexplored.reduce((sum, e) => sum + scoreEdgeForLenses(e, lenses), 0) + unexplored.length * 0.1;
+  };
+
+  const screenIds = Array.from(graph.nodes.keys()).sort((a, b) => screenScore(b) - screenScore(a));
 
   for (const screenId of screenIds) {
     const budget = checkBudget(graph, options, startTime);
@@ -236,6 +280,11 @@ async function mapFlowsDFS(
     );
 
     if (unexploredEdges.length === 0) continue;
+
+    // Lens-aware edge ordering: highest-scoring edges first
+    if (lenses.length > 0) {
+      unexploredEdges.sort((a, b) => scoreEdgeForLenses(b, lenses) - scoreEdgeForLenses(a, lenses));
+    }
 
     spinner.text = `Mapping flows on "${screen.title}" (${unexploredEdges.length} interactions)...`;
 
@@ -385,6 +434,14 @@ export async function runExploration(options: ExploreOptions): Promise<void> {
     graph = createEmptyGraph(options.url);
   }
 
+  // Load lenses if specified
+  const lensNames = parseLensFlag(options.lens);
+  const lenses: Lens[] = lensNames.length > 0 ? await loadLenses(lensNames) : [];
+  if (lenses.length > 0) {
+    const names = lenses.map((l) => `${l.name}${l.isCustom ? " (custom)" : ""}`).join(", ");
+    console.log(chalk.cyan(`Lens: ${names}`));
+  }
+
   let session: BrowserSession | undefined;
 
   try {
@@ -429,7 +486,7 @@ export async function runExploration(options: ExploreOptions): Promise<void> {
     const unexploredCount = graph.edges.filter((e) => e.status === "unexplored").length;
     if (unexploredCount > 0) {
       spinner.start(`Phase 2: Mapping flows (DFS)... ${unexploredCount} interactions to explore`);
-      await mapFlowsDFS(session, graph, options, startTime, graphPath, logPath, spinner);
+      await mapFlowsDFS(session, graph, options, startTime, graphPath, logPath, spinner, lenses);
       const traversed = graph.edges.filter((e) => e.status === "traversed").length;
       spinner.succeed(`Phase 2 complete: ${traversed} flow(s) mapped`);
     } else {
@@ -442,6 +499,17 @@ export async function runExploration(options: ExploreOptions): Promise<void> {
     // This is the recursive part — extractFlows reads the graph (which was built
     // using its own prior feature structure as coverage guidance)
     const features = extractFlows(graph);
+
+    // Apply lens tags to all features and scenarios
+    if (lenses.length > 0) {
+      const lensTags = getLensTags(lenses);
+      for (const feature of features) {
+        feature.tags = Array.from(new Set([...feature.tags, ...lensTags]));
+        for (const scenario of feature.scenarios) {
+          scenario.tags = Array.from(new Set([...scenario.tags, ...lensTags]));
+        }
+      }
+    }
 
     // Update graph metadata
     graph.metadata.endTime = new Date().toISOString();

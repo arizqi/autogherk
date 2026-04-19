@@ -7,6 +7,7 @@ import type {
   ProgressCallback,
 } from "../core/types.js";
 import { getGherkinPrompt, getBuildSpecPrompt } from "./prompts.js";
+import type { Lens } from "../core/lenses.js";
 import { withRetry } from "../core/retry.js";
 
 const MAX_RETRIES = 3;
@@ -33,12 +34,13 @@ export async function generateGherkin(
   framework: Framework,
   onProgress?: ProgressCallback,
   context?: string,
+  lenses: Lens[] = [],
 ): Promise<GherkinResult> {
   const client = new Anthropic({ apiKey });
 
   onProgress?.("claude", "Generating Gherkin scenarios...");
 
-  const systemPrompt = getGherkinPrompt(framework);
+  const systemPrompt = getGherkinPrompt(framework, lenses);
   const contextPrefix = context ? `Application context: ${context}\n\n` : "";
   const userMessage = `${contextPrefix}Here is the structured video analysis:\n\n${JSON.stringify(analysis, null, 2)}`;
 
@@ -93,12 +95,13 @@ export async function generateBuildSpec(
   model: string,
   onProgress?: ProgressCallback,
   context?: string,
+  lenses: Lens[] = [],
 ): Promise<BuildSpec> {
   const client = new Anthropic({ apiKey });
 
   onProgress?.("claude", "Generating build spec...");
 
-  const systemPrompt = getBuildSpecPrompt();
+  const systemPrompt = getBuildSpecPrompt("deep", lenses);
   const contextPrefix = context ? `Application context: ${context}\n\n` : "";
   const userMessage = `${contextPrefix}Here is the structured video analysis:\n\n${JSON.stringify(analysis, null, 2)}`;
 

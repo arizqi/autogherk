@@ -12,6 +12,16 @@ export { loadConfig, generateDefaultConfig } from './core/config.js';
 export { runExploration } from './core/explorer.js';
 export { extractFlows, identifyCoverageGaps } from './core/flow-extractor.js';
 export { loadGraph, saveGraph, createEmptyGraph } from './core/graph-store.js';
+export {
+  loadLens,
+  loadLenses,
+  parseLensFlag,
+  listAvailableLenses,
+  buildLensPromptSection,
+  getLensTags,
+  BUILT_IN_LENSES,
+} from './core/lenses.js';
+export type { Lens, BuiltInLens } from './core/lenses.js';
 
 // Re-export all types
 export type {
