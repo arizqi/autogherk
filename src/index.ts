@@ -10,7 +10,7 @@ const program = new Command()
   .description(
     "AI-powered tool that generates BDD Gherkin scenarios and build specs from product usage videos, or autonomously explores live web apps",
   )
-  .version("0.1.0");
+  .version("0.2.0");
 
 program.addCommand(generateCommand);
 program.addCommand(exploreCommand);
