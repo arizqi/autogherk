@@ -2,8 +2,9 @@ import { GoogleGenAI } from "@google/genai";
 import { readFileSync } from "node:fs";
 import { basename } from "node:path";
 import type { VideoAnalysis, BuildSpec, ProgressCallback } from "../core/types.js";
-import { VIDEO_ANALYSIS_PROMPT } from "./prompts.js";
+import { getVideoAnalysisPrompt } from "./prompts.js";
 import { getBuildSpecPrompt } from "../claude/prompts.js";
+import type { Lens } from "../core/lenses.js";
 
 export type SpecDepth = "deep" | "shallow";
 import { withRetry } from "../core/retry.js";
@@ -27,12 +28,27 @@ function getMimeType(filePath: string): string {
 
 function classifyGeminiError(error: unknown): Error {
   const status = (error as any)?.status ?? (error as any)?.statusCode;
+  const message = String((error as any)?.message ?? "");
+
   if (status === 401 || status === 403) {
     return new Error(
       "Invalid Gemini API key. Check your GEMINI_API_KEY.",
     );
   }
+  // Distinguish billing/quota exhaustion from transient rate limits.
+  // Both return 429 but billing issues won't resolve via retry.
   if (status === 429) {
+    if (
+      /prepayment credits/i.test(message) ||
+      /credits are depleted/i.test(message) ||
+      /billing/i.test(message) ||
+      /quota.*exceeded/i.test(message) ||
+      /RESOURCE_EXHAUSTED/.test(message)
+    ) {
+      return new Error(
+        "Gemini credits depleted or quota exhausted. Top up at https://ai.studio/projects or wait for daily quota reset.",
+      );
+    }
     return new Error(
       "Rate limited by Gemini. The tool will retry automatically.",
     );
@@ -117,11 +133,14 @@ export async function analyzeVideo(
   apiKey: string,
   model: string,
   onProgress?: ProgressCallback,
+  lenses: Lens[] = [],
 ): Promise<VideoAnalysis> {
   const ai = new GoogleGenAI({ apiKey });
   const uploaded = await uploadAndWaitForVideo(ai, videoPath, onProgress);
 
   onProgress?.("gemini", "Analyzing video content...");
+
+  const analysisPrompt = getVideoAnalysisPrompt(lenses);
 
   const response = await withRetry(
     () =>
@@ -132,7 +151,7 @@ export async function analyzeVideo(
             role: "user",
             parts: [
               { fileData: { fileUri: uploaded.uri, mimeType: uploaded.mimeType } },
-              { text: VIDEO_ANALYSIS_PROMPT },
+              { text: analysisPrompt },
             ],
           },
         ],
@@ -178,6 +197,7 @@ export async function generateBuildSpecFromVideo(
   onProgress?: ProgressCallback,
   context?: string,
   depth: SpecDepth = "deep",
+  lenses: Lens[] = [],
 ): Promise<BuildSpec> {
   const ai = new GoogleGenAI({ apiKey });
   const uploaded = await uploadAndWaitForVideo(ai, videoPath, onProgress);
@@ -185,7 +205,7 @@ export async function generateBuildSpecFromVideo(
   onProgress?.("gemini", `Generating ${depth} build spec from video...`);
 
   const contextPrefix = context ? `Application context: ${context}\n\n` : "";
-  const prompt = getBuildSpecPrompt(depth);
+  const prompt = getBuildSpecPrompt(depth, lenses);
   const userPrompt = `${contextPrefix}${prompt}\n\nAnalyze the video above and generate the build specification.`;
 
   const response = await withRetry(

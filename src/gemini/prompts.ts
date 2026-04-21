@@ -1,8 +1,10 @@
-export const VIDEO_ANALYSIS_PROMPT = `You are an expert QA analyst examining a screen recording of a product being used. Your job is to extract every meaningful user interaction and UI state change from the video.
+import { buildLensPromptSection, type Lens } from "../core/lenses.js";
 
-IMPORTANT: This video likely has NO audio or voiceover. You must extract all information purely from what you SEE on screen — cursor movements, clicks, typing, page transitions, form inputs, button states, error messages, loading indicators, and UI changes.
+const BASE_ANALYSIS_PROMPT = `You are an expert QA analyst examining a screen recording of a product being used. Your job is to extract every meaningful user interaction and UI state change from the video.
 
-Analyze the video frame by frame and return a JSON object with this exact structure:
+IMPORTANT: This video likely has NO audio or voiceover. You must extract all information purely from what you SEE on screen — cursor movements, clicks, typing, page transitions, form inputs, button states, error messages, loading indicators, and UI changes.`;
+
+const ANALYSIS_SCHEMA = `Analyze the video frame by frame and return a JSON object with this exact structure:
 
 {
   "screens": [
@@ -41,3 +43,23 @@ Guidelines:
 - Use timestamps relative to video start (MM:SS format)
 
 Return ONLY the JSON object, no markdown formatting or code blocks.`;
+
+/**
+ * Legacy export — no-lens prompt. Kept for backwards compatibility.
+ */
+export const VIDEO_ANALYSIS_PROMPT = `${BASE_ANALYSIS_PROMPT}\n\n${ANALYSIS_SCHEMA}`;
+
+/**
+ * Build a lens-aware video analysis prompt. When lenses are provided, the
+ * analysis will prioritize capturing details relevant to those personas.
+ */
+export function getVideoAnalysisPrompt(lenses: Lens[] = []): string {
+  const lensSection = buildLensPromptSection(lenses, "analysis");
+  if (!lensSection) return VIDEO_ANALYSIS_PROMPT;
+
+  return `${BASE_ANALYSIS_PROMPT}
+
+${lensSection}
+
+${ANALYSIS_SCHEMA}`;
+}

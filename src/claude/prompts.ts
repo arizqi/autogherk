@@ -1,14 +1,19 @@
 import type { Framework } from "../core/types.js";
+import { buildLensPromptSection, type Lens } from "../core/lenses.js";
 
-export function getBuildSpecPrompt(depth: "deep" | "shallow" = "deep"): string {
+export function getBuildSpecPrompt(
+  depth: "deep" | "shallow" = "deep",
+  lenses: Lens[] = [],
+): string {
   const depthInstructions = depth === "deep" ? DEEP_SPEC_INSTRUCTIONS : SHALLOW_SPEC_INSTRUCTIONS;
+  const lensSection = buildLensPromptSection(lenses, "spec");
 
   return `You are an expert software architect, UI designer, and product reverse-engineer. Given a product usage video, generate a comprehensive build specification that another AI agent (like Claude Opus) could use to rebuild this application from scratch — both functionally AND visually.
 
 There may be no audio narration, so focus entirely on the observed user actions, screen states, and visual design.
 
 Your goal is to produce BLUEPRINTS, not test cases. Think like an architect reverse-engineering a product for pixel-accurate, feature-complete replication.
-
+${lensSection ? "\n" + lensSection + "\n" : ""}
 ${depthInstructions}
 
 Return ONLY a JSON object matching this structure — no markdown, no code blocks:
@@ -221,15 +226,17 @@ const BUILD_SPEC_JSON_SCHEMA = `{
   ]
 }`;
 
-export function getGherkinPrompt(framework: Framework): string {
+export function getGherkinPrompt(framework: Framework, lenses: Lens[] = []): string {
   const frameworkNotes: Record<Framework, string> = {
     "cucumber-js": "Use step definitions compatible with Cucumber.js (@cucumber/cucumber). Use async/await patterns.",
     "cucumber-java": "Use step definitions compatible with Cucumber for Java (io.cucumber). Use Java naming conventions.",
     "behave": "Use step definitions compatible with Python Behave. Use snake_case and Python conventions.",
     "specflow": "Use step definitions compatible with SpecFlow for .NET. Use C# naming conventions and attributes.",
   };
+  const lensSection = buildLensPromptSection(lenses, "gherkin");
 
   return `You are an expert BDD test engineer. Given a structured analysis of a product usage video, generate comprehensive Gherkin test scenarios.
+${lensSection ? "\n" + lensSection + "\n" : ""}
 
 The video analysis describes UI interactions observed in a screen recording — there may be no audio narration, so focus entirely on the observed user actions and screen states.
 

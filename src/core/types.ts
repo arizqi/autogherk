@@ -179,6 +179,7 @@ export interface GenerateOptions {
   append?: boolean;
   format?: "gherkin" | "json" | "spec";
   depth?: "deep" | "shallow";
+  lens?: string; // comma-separated lens names, e.g. "designer,growth"
 }
 
 export type ProgressCallback = (stage: string, message: string) => void;
@@ -197,6 +198,7 @@ export interface ExploreOptions {
   skipPatterns: string[];
   config?: string;
   context?: string;
+  lens?: string; // comma-separated lens names
 }
 
 export interface AuthStrategy {

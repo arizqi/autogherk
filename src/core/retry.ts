@@ -23,6 +23,18 @@ function isTransientError(error: unknown): boolean {
   // HTTP status-based errors (works with both Anthropic SDK and Google GenAI errors)
   const status = (error as any)?.status ?? (error as any)?.statusCode;
   if (status === 429 || status === 503 || status === 502 || status === 500) {
+    // Billing/quota exhaustion is NOT transient — retrying won't help.
+    // Look for explicit signals in the error message.
+    const msg = String((error as any)?.message ?? "").toLowerCase();
+    if (
+      msg.includes("prepayment credits") ||
+      msg.includes("credits are depleted") ||
+      msg.includes("billing") ||
+      msg.includes("resource_exhausted") ||
+      msg.includes("quota exceeded")
+    ) {
+      return false;
+    }
     return true;
   }
 

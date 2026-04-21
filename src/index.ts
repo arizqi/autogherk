@@ -3,6 +3,7 @@ import { generateCommand } from "./cli/commands/generate.js";
 import { initCommand } from "./cli/commands/init.js";
 import { installSkillsCommand } from "./cli/commands/install-skills.js";
 import { exploreCommand } from "./cli/commands/explore.js";
+import { lensesCommand } from "./cli/commands/lenses.js";
 
 const program = new Command()
   .name("autogherk")
@@ -13,6 +14,7 @@ const program = new Command()
 
 program.addCommand(generateCommand);
 program.addCommand(exploreCommand);
+program.addCommand(lensesCommand);
 program.addCommand(initCommand);
 program.addCommand(installSkillsCommand);
 
