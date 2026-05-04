@@ -36,7 +36,22 @@ export async function launchBrowser(url?: string): Promise<BrowserSession> {
     }
   }
 
-  const browser = await chromium.launch({ headless: true });
+  let browser;
+  try {
+    browser = await chromium.launch({ headless: true });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (
+      msg.includes("Executable doesn't exist") ||
+      msg.includes("playwright install") ||
+      msg.includes("browserType.launch")
+    ) {
+      throw new Error(
+        "Chromium binary not found. Install it with:\n\n  npx playwright install chromium\n\nThen re-run autogherk explore.",
+      );
+    }
+    throw err;
+  }
   const context = await browser.newContext({
     viewport: { width: 1280, height: 800 },
     userAgent:
@@ -55,7 +70,18 @@ export async function interactiveLogin(url: string): Promise<void> {
   console.log(`\nOpening browser for login to ${new URL(url).hostname}...`);
   console.log("Log in as you normally would, then return here and press Enter.\n");
 
-  const browser = await chromium.launch({ headless: false });
+  let browser;
+  try {
+    browser = await chromium.launch({ headless: false });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("Executable doesn't exist") || msg.includes("playwright install")) {
+      throw new Error(
+        "Chromium binary not found. Install it with:\n\n  npx playwright install chromium\n\nThen re-run autogherk explore.",
+      );
+    }
+    throw err;
+  }
   const context = await browser.newContext({
     viewport: { width: 1280, height: 800 },
   });

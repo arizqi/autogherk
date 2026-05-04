@@ -1,6 +1,6 @@
 {
   "name": "autogherk",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "AI-powered CLI that generates BDD Gherkin test scenarios and build specs from product videos, or autonomously explores live web apps. Supports persona-driven lenses (designer, growth, security, etc.) for shaping output.",
   "type": "module",
   "main": "./dist/api.js",
