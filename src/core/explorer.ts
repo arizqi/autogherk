@@ -76,12 +76,15 @@ function checkBudget(
   graph: ExplorationGraph,
   options: ExploreOptions,
   startTime: number,
+  phase: "bfs" | "dfs" = "bfs",
 ): BudgetCheck {
   const elapsed = Date.now() - startTime;
   if (elapsed >= options.maxTime) {
     return { exceeded: true, reason: `Time budget exceeded (${Math.round(elapsed / 1000)}s)` };
   }
-  if (graph.nodes.size >= options.maxScreens) {
+  // Screen cap only bounds BFS discovery — DFS continues mapping
+  // interactions on already-discovered screens.
+  if (phase === "bfs" && graph.nodes.size >= options.maxScreens) {
     return { exceeded: true, reason: `Screen budget exceeded (${graph.nodes.size} screens)` };
   }
   return { exceeded: false, reason: "" };
@@ -268,7 +271,7 @@ async function mapFlowsDFS(
   const screenIds = Array.from(graph.nodes.keys()).sort((a, b) => screenScore(b) - screenScore(a));
 
   for (const screenId of screenIds) {
-    const budget = checkBudget(graph, options, startTime);
+    const budget = checkBudget(graph, options, startTime, "dfs");
     if (budget.exceeded) {
       await appendLog(`DFS stopped: ${budget.reason}`, logPath);
       break;
@@ -298,7 +301,7 @@ async function mapFlowsDFS(
     }
 
     for (const edge of unexploredEdges) {
-      const innerBudget = checkBudget(graph, options, startTime);
+      const innerBudget = checkBudget(graph, options, startTime, "dfs");
       if (innerBudget.exceeded) break;
 
       const interaction = edge.interaction;
