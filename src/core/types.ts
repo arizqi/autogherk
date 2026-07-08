@@ -156,7 +156,7 @@ export type Framework =
   | "specflow";
 
 export interface AppConfig {
-  geminiApiKey: string;
+  geminiApiKey: string | undefined; // undefined only in --from-analysis mode
   anthropicApiKey: string | undefined;
   geminiModel: string;
   claudeModel: string;
@@ -167,7 +167,7 @@ export interface AppConfig {
 }
 
 export interface GenerateOptions {
-  video: string | string[];
+  video?: string | string[]; // optional when fromAnalysis is provided
   output: string;
   framework?: Framework;
   verbose?: boolean;
@@ -180,6 +180,7 @@ export interface GenerateOptions {
   format?: "gherkin" | "json" | "spec";
   depth?: "deep" | "shallow";
   lens?: string; // comma-separated lens names, e.g. "designer,growth"
+  fromAnalysis?: string; // path to a saved analysis.json — skips the Gemini stage
 }
 
 export type ProgressCallback = (stage: string, message: string) => void;
@@ -199,6 +200,7 @@ export interface ExploreOptions {
   config?: string;
   context?: string;
   lens?: string; // comma-separated lens names
+  synthesize?: boolean; // rewrite mechanical scenarios with Claude (needs ANTHROPIC_API_KEY)
 }
 
 export interface AuthStrategy {

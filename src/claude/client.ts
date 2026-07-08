@@ -9,6 +9,12 @@ import type {
 import { getGherkinPrompt, getBuildSpecPrompt } from "./prompts.js";
 import type { Lens } from "../core/lenses.js";
 import { withRetry } from "../core/retry.js";
+import {
+  parseLLMJson,
+  assertNotTruncated,
+  gherkinResultSchema,
+  buildSpecSchema,
+} from "../core/llm-json.js";
 
 const MAX_RETRIES = 3;
 
@@ -27,34 +33,39 @@ function classifyClaudeError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
 
+export interface GenerateGherkinOptions {
+  analysis: VideoAnalysis;
+  apiKey: string;
+  model: string;
+  framework: Framework;
+  context?: string;
+  lenses?: Lens[];
+  onProgress?: ProgressCallback;
+}
+
 export async function generateGherkin(
-  analysis: VideoAnalysis,
-  apiKey: string,
-  model: string,
-  framework: Framework,
-  onProgress?: ProgressCallback,
-  context?: string,
-  lenses: Lens[] = [],
+  options: GenerateGherkinOptions,
 ): Promise<GherkinResult> {
+  const { analysis, apiKey, model, framework, context, lenses = [], onProgress } = options;
   const client = new Anthropic({ apiKey });
 
   onProgress?.("claude", "Generating Gherkin scenarios...");
 
   const systemPrompt = getGherkinPrompt(framework, lenses);
   const contextPrefix = context ? `Application context: ${context}\n\n` : "";
-  const userMessage = `${contextPrefix}Here is the structured video analysis:\n\n${JSON.stringify(analysis, null, 2)}`;
+  const userMessage = `${contextPrefix}Here is the structured video analysis:\n\n${JSON.stringify(analysis)}`;
 
   const response = await withRetry(
     () =>
       client.messages.create({
         model,
-        max_tokens: 8192,
+        max_tokens: 16384,
         messages: [{ role: "user", content: userMessage }],
         system: systemPrompt,
       }),
     {
       maxRetries: MAX_RETRIES,
-      onRetry: (error, attempt) => {
+      onRetry: (_error, attempt) => {
         onProgress?.(
           "claude",
           `Retrying Claude generation (attempt ${attempt + 1}/${MAX_RETRIES + 1})...`,
@@ -65,45 +76,37 @@ export async function generateGherkin(
     throw classifyClaudeError(error);
   });
 
+  assertNotTruncated(response.stop_reason, "Gherkin generation");
+
   const textBlock = response.content.find((block) => block.type === "text");
   if (!textBlock || textBlock.type !== "text") {
     throw new Error("No text response from Claude");
   }
 
-  const text = textBlock.text;
-  const cleaned = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+  return parseLLMJson(textBlock.text, gherkinResultSchema, "Gherkin generation") as GherkinResult;
+}
 
-  let result: GherkinResult;
-  try {
-    result = JSON.parse(cleaned);
-  } catch {
-    throw new Error(
-      "Failed to parse Claude response as JSON. Use --verbose to see the raw output.",
-    );
-  }
-
-  if (!result.features || !Array.isArray(result.features)) {
-    throw new Error("Claude response missing 'features' array");
-  }
-
-  return result;
+export interface GenerateBuildSpecOptions {
+  analysis: VideoAnalysis;
+  apiKey: string;
+  model: string;
+  depth?: "deep" | "shallow";
+  context?: string;
+  lenses?: Lens[];
+  onProgress?: ProgressCallback;
 }
 
 export async function generateBuildSpec(
-  analysis: VideoAnalysis,
-  apiKey: string,
-  model: string,
-  onProgress?: ProgressCallback,
-  context?: string,
-  lenses: Lens[] = [],
+  options: GenerateBuildSpecOptions,
 ): Promise<BuildSpec> {
+  const { analysis, apiKey, model, depth = "deep", context, lenses = [], onProgress } = options;
   const client = new Anthropic({ apiKey });
 
   onProgress?.("claude", "Generating build spec...");
 
-  const systemPrompt = getBuildSpecPrompt("deep", lenses);
+  const systemPrompt = getBuildSpecPrompt(depth, lenses);
   const contextPrefix = context ? `Application context: ${context}\n\n` : "";
-  const userMessage = `${contextPrefix}Here is the structured video analysis:\n\n${JSON.stringify(analysis, null, 2)}`;
+  const userMessage = `${contextPrefix}Here is the structured video analysis:\n\n${JSON.stringify(analysis)}`;
 
   // Use streaming to avoid 10-minute timeout on large spec generation
   const stream = await withRetry(
@@ -117,7 +120,7 @@ export async function generateBuildSpec(
       }),
     {
       maxRetries: MAX_RETRIES,
-      onRetry: (error, attempt) => {
+      onRetry: (_error, attempt) => {
         onProgress?.(
           "claude",
           `Retrying Claude generation (attempt ${attempt + 1}/${MAX_RETRIES + 1})...`,
@@ -129,6 +132,7 @@ export async function generateBuildSpec(
   });
 
   let text = "";
+  let stopReason: string | null = null;
   for await (const event of stream) {
     if (
       event.type === "content_block_delta" &&
@@ -136,32 +140,16 @@ export async function generateBuildSpec(
     ) {
       text += event.delta.text;
     }
+    if (event.type === "message_delta" && event.delta.stop_reason) {
+      stopReason = event.delta.stop_reason;
+    }
   }
 
   if (!text) {
     throw new Error("No text response from Claude");
   }
 
-  return parseBuildSpecResponse(text);
-}
+  assertNotTruncated(stopReason, "Build spec generation");
 
-function parseBuildSpecResponse(text: string): BuildSpec {
-  const cleaned = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
-
-  let result: BuildSpec;
-  try {
-    result = JSON.parse(cleaned);
-  } catch {
-    // Log first 200 chars to help debug
-    const preview = cleaned.slice(0, 200);
-    throw new Error(
-      `Failed to parse build spec JSON. Preview: ${preview}...`,
-    );
-  }
-
-  if (!result.screens || !Array.isArray(result.screens)) {
-    throw new Error("Claude response missing 'screens' array");
-  }
-
-  return result;
+  return parseLLMJson(text, buildSpecSchema, "Build spec generation") as BuildSpec;
 }

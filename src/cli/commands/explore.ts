@@ -25,6 +25,11 @@ export const exploreCommand = new Command("explore")
   .option("--max-time <duration>", "Time budget (e.g. 30s, 10m, 1h)", "10m")
   .option("--max-screens <n>", "Maximum number of screens to discover", "50")
   .option("--dry-run", "Observe only — navigate but don't click interactions", false)
+  .option(
+    "--synthesize",
+    "Rewrite mechanical scenarios into semantic Gherkin with Claude (requires ANTHROPIC_API_KEY)",
+    false,
+  )
   .option("--skip-patterns <patterns...>", "Additional text patterns to skip (treated as destructive)")
   .option("--verbose", "Show detailed exploration progress", false)
   .option("--context <text>", "Additional context about the app")
@@ -57,6 +62,7 @@ export const exploreCommand = new Command("explore")
       config: opts.config,
       context: opts.context,
       lens: opts.lens,
+      synthesize: opts.synthesize,
     };
 
     await runExploration(options);
