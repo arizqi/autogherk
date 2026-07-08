@@ -5,9 +5,15 @@ import type { VideoAnalysis, BuildSpec, ProgressCallback } from "../core/types.j
 import { getVideoAnalysisPrompt } from "./prompts.js";
 import { getBuildSpecPrompt } from "../claude/prompts.js";
 import type { Lens } from "../core/lenses.js";
+import { withRetry } from "../core/retry.js";
+import {
+  parseLLMJson,
+  assertNotTruncated,
+  videoAnalysisSchema,
+  buildSpecSchema,
+} from "../core/llm-json.js";
 
 export type SpecDepth = "deep" | "shallow";
-import { withRetry } from "../core/retry.js";
 
 const POLL_INTERVAL_MS = 5_000;
 const MAX_POLL_ATTEMPTS = 120; // 10 minutes max
@@ -28,27 +34,22 @@ function getMimeType(filePath: string): string {
 
 function classifyGeminiError(error: unknown): Error {
   const status = (error as any)?.status ?? (error as any)?.statusCode;
-  const message = String((error as any)?.message ?? "");
+  const message = error instanceof Error ? error.message : String(error);
 
   if (status === 401 || status === 403) {
+    return new Error("Invalid Gemini API key. Check your GEMINI_API_KEY.");
+  }
+  if (
+    message.includes("RESOURCE_EXHAUSTED") ||
+    message.toLowerCase().includes("credits depleted") ||
+    message.toLowerCase().includes("billing") ||
+    message.toLowerCase().includes("quota exceeded")
+  ) {
     return new Error(
-      "Invalid Gemini API key. Check your GEMINI_API_KEY.",
+      "Gemini credits depleted or quota exhausted. Top up at https://ai.studio/projects or wait for daily quota reset.",
     );
   }
-  // Distinguish billing/quota exhaustion from transient rate limits.
-  // Both return 429 but billing issues won't resolve via retry.
   if (status === 429) {
-    if (
-      /prepayment credits/i.test(message) ||
-      /credits are depleted/i.test(message) ||
-      /billing/i.test(message) ||
-      /quota.*exceeded/i.test(message) ||
-      /RESOURCE_EXHAUSTED/.test(message)
-    ) {
-      return new Error(
-        "Gemini credits depleted or quota exhausted. Top up at https://ai.studio/projects or wait for daily quota reset.",
-      );
-    }
     return new Error(
       "Rate limited by Gemini. The tool will retry automatically.",
     );
@@ -82,7 +83,7 @@ async function uploadAndWaitForVideo(
       }),
     {
       maxRetries: MAX_RETRIES,
-      onRetry: (error, attempt) => {
+      onRetry: (_error, attempt) => {
         onProgress?.(
           "gemini",
           `Retrying Gemini upload (attempt ${attempt + 1}/${MAX_RETRIES + 1})...`,
@@ -128,13 +129,18 @@ async function uploadAndWaitForVideo(
   return { uri: file.uri!, mimeType: file.mimeType!, fileName };
 }
 
+export interface AnalyzeVideoOptions {
+  videoPath: string;
+  apiKey: string;
+  model: string;
+  lenses?: Lens[];
+  onProgress?: ProgressCallback;
+}
+
 export async function analyzeVideo(
-  videoPath: string,
-  apiKey: string,
-  model: string,
-  onProgress?: ProgressCallback,
-  lenses: Lens[] = [],
+  options: AnalyzeVideoOptions,
 ): Promise<VideoAnalysis> {
+  const { videoPath, apiKey, model, lenses = [], onProgress } = options;
   const ai = new GoogleGenAI({ apiKey });
   const uploaded = await uploadAndWaitForVideo(ai, videoPath, onProgress);
 
@@ -162,7 +168,7 @@ export async function analyzeVideo(
       }),
     {
       maxRetries: MAX_RETRIES,
-      onRetry: (error, attempt) => {
+      onRetry: (_error, attempt) => {
         onProgress?.(
           "gemini",
           `Retrying Gemini analysis (attempt ${attempt + 1}/${MAX_RETRIES + 1})...`,
@@ -173,32 +179,44 @@ export async function analyzeVideo(
     throw classifyGeminiError(error);
   });
 
-  const text = response.text ?? "";
-  const cleaned = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+  assertNotTruncated(
+    (response as any).candidates?.[0]?.finishReason,
+    "Video analysis",
+  );
 
-  let analysis: VideoAnalysis;
-  try {
-    analysis = JSON.parse(cleaned);
-  } catch {
-    throw new Error(
-      "Failed to parse Gemini response as JSON. Use --verbose to see the raw output.",
-    );
-  }
+  const analysis = parseLLMJson(
+    response.text ?? "",
+    videoAnalysisSchema,
+    "Video analysis",
+  ) as VideoAnalysis;
 
   await ai.files.delete({ name: uploaded.fileName }).catch(() => {});
 
   return analysis;
 }
 
+export interface GenerateBuildSpecFromVideoOptions {
+  videoPath: string;
+  apiKey: string;
+  model: string;
+  depth?: SpecDepth;
+  context?: string;
+  lenses?: Lens[];
+  onProgress?: ProgressCallback;
+}
+
 export async function generateBuildSpecFromVideo(
-  videoPath: string,
-  apiKey: string,
-  model: string,
-  onProgress?: ProgressCallback,
-  context?: string,
-  depth: SpecDepth = "deep",
-  lenses: Lens[] = [],
+  options: GenerateBuildSpecFromVideoOptions,
 ): Promise<BuildSpec> {
+  const {
+    videoPath,
+    apiKey,
+    model,
+    depth = "deep",
+    context,
+    lenses = [],
+    onProgress,
+  } = options;
   const ai = new GoogleGenAI({ apiKey });
   const uploaded = await uploadAndWaitForVideo(ai, videoPath, onProgress);
 
@@ -228,7 +246,7 @@ export async function generateBuildSpecFromVideo(
       }),
     {
       maxRetries: MAX_RETRIES,
-      onRetry: (error, attempt) => {
+      onRetry: (_error, attempt) => {
         onProgress?.(
           "gemini",
           `Retrying Gemini spec generation (attempt ${attempt + 1}/${MAX_RETRIES + 1})...`,
@@ -239,22 +257,16 @@ export async function generateBuildSpecFromVideo(
     throw classifyGeminiError(error);
   });
 
-  const text = response.text ?? "";
-  const cleaned = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+  assertNotTruncated(
+    (response as any).candidates?.[0]?.finishReason,
+    "Build spec generation",
+  );
 
-  let result: BuildSpec;
-  try {
-    result = JSON.parse(cleaned);
-  } catch {
-    const preview = cleaned.slice(0, 300);
-    throw new Error(
-      `Failed to parse Gemini build spec JSON. Preview: ${preview}...`,
-    );
-  }
-
-  if (!result.screens || !Array.isArray(result.screens)) {
-    throw new Error("Gemini response missing 'screens' array");
-  }
+  const result = parseLLMJson(
+    response.text ?? "",
+    buildSpecSchema,
+    "Build spec generation",
+  ) as BuildSpec;
 
   await ai.files.delete({ name: uploaded.fileName }).catch(() => {});
 

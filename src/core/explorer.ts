@@ -27,6 +27,7 @@ import { createEmptyGraph, saveGraph, appendLog, loadGraph } from "./graph-store
 import { extractFlows, identifyCoverageGaps } from "./flow-extractor.js";
 import { writeExploreOutput } from "../output/explore-writer.js";
 import { loadLenses, parseLensFlag, getLensTags, type Lens } from "./lenses.js";
+import { synthesizeFlows } from "./synthesize.js";
 
 interface BudgetCheck {
   exceeded: boolean;
@@ -148,17 +149,62 @@ async function captureScreen(
  * Phase 1: BFS screen discovery.
  * Follow navigation links (anchors with href) to map all reachable screens.
  */
+/**
+ * Wait for the page to settle: networkidle if it comes quickly, otherwise a
+ * hard cap. Replaces fixed sleeps — fast pages proceed immediately, slow SPAs
+ * still get bounded time to render.
+ */
+async function waitForSettle(page: import("playwright").Page, capMs: number): Promise<void> {
+  await Promise.race([
+    page.waitForLoadState("networkidle").catch(() => {}),
+    page.waitForTimeout(capMs),
+  ]);
+}
+
+/** Add edges for all of a screen's interactions, using a Set for O(1) dedup. */
+function addScreenEdges(
+  graph: ExplorationGraph,
+  screen: ScreenNode,
+  knownEdgeIds: Set<string>,
+): void {
+  for (const interaction of screen.interactions) {
+    const edgeId = generateEdgeId(screen.id, interaction);
+    if (knownEdgeIds.has(edgeId)) continue;
+    knownEdgeIds.add(edgeId);
+    graph.edges.push({
+      id: edgeId,
+      from: screen.id,
+      to: null,
+      interaction,
+      status: interaction.isDestructive ? "destructive-skipped" : "unexplored",
+      discovered: new Date().toISOString(),
+    });
+  }
+}
+
+/** Debounced graph persistence — saves at most once per interval unless forced. */
+function createGraphSaver(graph: ExplorationGraph, graphPath: string, intervalMs = 5000) {
+  let lastSave = 0;
+  return async (force = false) => {
+    const now = Date.now();
+    if (!force && now - lastSave < intervalMs) return;
+    lastSave = now;
+    await saveGraph(graph, graphPath);
+  };
+}
+
 async function discoverScreensBFS(
   session: BrowserSession,
   graph: ExplorationGraph,
   options: ExploreOptions,
   startTime: number,
-  graphPath: string,
   logPath: string,
   spinner: ReturnType<typeof ora>,
+  knownEdgeIds: Set<string>,
+  saveGraphDebounced: (force?: boolean) => Promise<void>,
 ): Promise<void> {
   const { page } = session;
-  const queue: string[] = [options.url]; // URLs to visit
+  const queue: Array<{ url: string; depth: number }> = [{ url: options.url, depth: 0 }];
   const visitedUrls = new Set<string>();
 
   while (queue.length > 0) {
@@ -168,7 +214,7 @@ async function discoverScreensBFS(
       break;
     }
 
-    const url = queue.shift()!;
+    const { url, depth } = queue.shift()!;
     const normalizedUrl = normalizeUrlPattern(url);
     if (visitedUrls.has(normalizedUrl)) continue;
     visitedUrls.add(normalizedUrl);
@@ -185,14 +231,11 @@ async function discoverScreensBFS(
       continue;
     }
 
-    // Wait for SPA rendering — heavy apps like Jira need extra time
-    await page.waitForTimeout(2000);
+    await waitForSettle(page, 2000);
 
-    // Log where we actually ended up (may have redirected)
     const actualUrl = page.url();
     if (actualUrl !== url) {
       await appendLog(`Redirected: ${url} → ${actualUrl}`, logPath);
-      // If redirected to a login page, add that as the first screen
     }
 
     const { screen, isNew } = await captureScreen(
@@ -201,39 +244,24 @@ async function discoverScreensBFS(
 
     if (isNew) {
       await appendLog(
-        `BFS: Discovered screen "${screen.title}" at ${screen.url} (${screen.id})`,
+        `BFS: Discovered screen "${screen.title}" at ${screen.url} (${screen.id}, depth ${depth})`,
         logPath,
       );
 
-      // Extract nav links to queue for BFS
-      const navLinks = screen.interactions.filter(
-        (i) => i.type === "navigate" && i.href && !i.isDestructive,
-      );
-
-      for (const link of navLinks) {
-        if (link.href && !visitedUrls.has(normalizeUrlPattern(link.href))) {
-          queue.push(link.href);
+      // Queue nav links for BFS — bounded by --max-depth
+      if (depth < options.maxDepth) {
+        const navLinks = screen.interactions.filter(
+          (i) => i.type === "navigate" && i.href && !i.isDestructive,
+        );
+        for (const link of navLinks) {
+          if (link.href && !visitedUrls.has(normalizeUrlPattern(link.href))) {
+            queue.push({ url: link.href, depth: depth + 1 });
+          }
         }
       }
 
-      // Add edges for all interactions found on this screen
-      for (const interaction of screen.interactions) {
-        const edgeId = generateEdgeId(screen.id, interaction);
-        const exists = graph.edges.some((e) => e.id === edgeId);
-        if (!exists) {
-          graph.edges.push({
-            id: edgeId,
-            from: screen.id,
-            to: null,
-            interaction,
-            status: interaction.isDestructive ? "destructive-skipped" : "unexplored",
-            discovered: new Date().toISOString(),
-          });
-        }
-      }
-
-      // Persist graph after each new screen
-      await saveGraph(graph, graphPath);
+      addScreenEdges(graph, screen, knownEdgeIds);
+      await saveGraphDebounced();
     }
   }
 }
@@ -248,10 +276,11 @@ async function mapFlowsDFS(
   graph: ExplorationGraph,
   options: ExploreOptions,
   startTime: number,
-  graphPath: string,
   logPath: string,
   spinner: ReturnType<typeof ora>,
-  lenses: Lens[] = [],
+  lenses: Lens[],
+  knownEdgeIds: Set<string>,
+  saveGraphDebounced: (force?: boolean) => Promise<void>,
 ): Promise<void> {
   if (options.dryRun) {
     await appendLog("DFS skipped: dry-run mode", logPath);
@@ -294,7 +323,7 @@ async function mapFlowsDFS(
     // Navigate to the screen first
     try {
       await page.goto(screen.url, { waitUntil: "domcontentloaded", timeout: 30000 });
-      await page.waitForTimeout(500);
+      await waitForSettle(page, 800);
     } catch {
       await appendLog(`DFS: Failed to navigate to ${screen.url}`, logPath);
       continue;
@@ -331,7 +360,7 @@ async function mapFlowsDFS(
         }
 
         // Wait for any navigation or rendering
-        await page.waitForTimeout(1000);
+        await waitForSettle(page, 1200);
 
         // Capture where we ended up
         const afterUrl = page.url();
@@ -350,25 +379,13 @@ async function mapFlowsDFS(
 
         // If we landed on a new screen, add its edges too
         if (isNew) {
-          for (const newInteraction of destScreen.interactions) {
-            const newEdgeId = generateEdgeId(destScreen.id, newInteraction);
-            if (!graph.edges.some((e) => e.id === newEdgeId)) {
-              graph.edges.push({
-                id: newEdgeId,
-                from: destScreen.id,
-                to: null,
-                interaction: newInteraction,
-                status: newInteraction.isDestructive ? "destructive-skipped" : "unexplored",
-                discovered: new Date().toISOString(),
-              });
-            }
-          }
+          addScreenEdges(graph, destScreen, knownEdgeIds);
         }
 
-        // Navigate back to continue exploring this screen
+        // Navigate back only if the action actually moved us
         if (afterUrl !== beforeUrl) {
           await page.goto(screen.url, { waitUntil: "domcontentloaded", timeout: 30000 });
-          await page.waitForTimeout(500);
+          await waitForSettle(page, 800);
         }
       } catch (err) {
         edge.status = "dead-end";
@@ -386,8 +403,7 @@ async function mapFlowsDFS(
         }
       }
 
-      // Persist after each interaction
-      await saveGraph(graph, graphPath);
+      await saveGraphDebounced();
     }
   }
 }
@@ -480,16 +496,26 @@ export async function runExploration(options: ExploreOptions): Promise<void> {
       await appendLog(`Starting exploration of ${options.url}`, logPath);
     }
 
+    // Shared O(1) edge dedup + debounced persistence across both phases
+    const knownEdgeIds = new Set(graph.edges.map((e) => e.id));
+    const saveGraphDebounced = createGraphSaver(graph, graphPath);
+
     // Phase 1: BFS screen discovery
     spinner.start("Phase 1: Discovering screens (BFS)...");
-    await discoverScreensBFS(session, graph, options, startTime, graphPath, logPath, spinner);
+    await discoverScreensBFS(
+      session, graph, options, startTime, logPath, spinner, knownEdgeIds, saveGraphDebounced,
+    );
+    await saveGraphDebounced(true);
     spinner.succeed(`Phase 1 complete: ${graph.nodes.size} screen(s) discovered`);
 
     // Phase 2: DFS flow mapping
     const unexploredCount = graph.edges.filter((e) => e.status === "unexplored").length;
     if (unexploredCount > 0) {
       spinner.start(`Phase 2: Mapping flows (DFS)... ${unexploredCount} interactions to explore`);
-      await mapFlowsDFS(session, graph, options, startTime, graphPath, logPath, spinner, lenses);
+      await mapFlowsDFS(
+        session, graph, options, startTime, logPath, spinner, lenses, knownEdgeIds, saveGraphDebounced,
+      );
+      await saveGraphDebounced(true);
       const traversed = graph.edges.filter((e) => e.status === "traversed").length;
       spinner.succeed(`Phase 2 complete: ${traversed} flow(s) mapped`);
     } else {
@@ -501,7 +527,35 @@ export async function runExploration(options: ExploreOptions): Promise<void> {
 
     // This is the recursive part — extractFlows reads the graph (which was built
     // using its own prior feature structure as coverage guidance)
-    const features = extractFlows(graph);
+    let features = extractFlows(graph, options.maxDepth);
+
+    // Phase 3.5 (opt-in): rewrite mechanical scenarios into semantic Gherkin
+    if (options.synthesize && features.length > 0) {
+      const anthropicKey = process.env.ANTHROPIC_API_KEY;
+      if (!anthropicKey) {
+        spinner.warn("--synthesize requires ANTHROPIC_API_KEY — skipping synthesis");
+      } else {
+        spinner.start("Phase 3.5: Synthesizing semantic scenarios with Claude...");
+        try {
+          features = await synthesizeFlows({
+            features,
+            graph,
+            apiKey: anthropicKey,
+            model: process.env.CLAUDE_MODEL ?? "claude-opus-4-6",
+            lenses,
+            context: options.context,
+            onProgress: (_stage, msg) => { spinner.text = msg; },
+          });
+          spinner.succeed(
+            `Synthesis complete: ${features.length} feature(s), ${features.reduce((s, f) => s + f.scenarios.length, 0)} scenario(s)`,
+          );
+        } catch (err) {
+          spinner.warn(
+            `Synthesis failed (${err instanceof Error ? err.message : "unknown"}) — keeping mechanical scenarios`,
+          );
+        }
+      }
+    }
 
     // Apply lens tags to all features and scenarios
     if (lenses.length > 0) {

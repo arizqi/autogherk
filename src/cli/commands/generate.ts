@@ -4,9 +4,13 @@ import { runPipeline } from "../../core/pipeline.js";
 
 export const generateCommand = new Command("generate")
   .description("Generate Gherkin scenarios from product usage video(s)")
-  .requiredOption(
+  .option(
     "-v, --video <paths...>",
     "Input video path(s), URL(s), or directory (repeatable, comma-separated supported)",
+  )
+  .option(
+    "--from-analysis <path>",
+    "Reuse a saved analysis.json (from --save-analysis) and skip the Gemini stage entirely",
   )
   .option("-o, --output <dir>", "Output directory", "./features/")
   .option(
@@ -27,8 +31,13 @@ export const generateCommand = new Command("generate")
     "Lens(es) to shape output — one of qa, designer, growth, security, support, pm, a11y, or a custom lens. Multiple comma-separated (e.g. \"designer,growth\").",
   )
   .action(async (opts) => {
+    if (!opts.video && !opts.fromAnalysis) {
+      console.error("Either --video or --from-analysis is required.");
+      process.exit(1);
+    }
     const options: GenerateOptions = {
       video: opts.video,
+      fromAnalysis: opts.fromAnalysis,
       output: opts.output,
       framework: opts.framework as Framework | undefined,
       verbose: opts.verbose,

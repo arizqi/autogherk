@@ -208,10 +208,27 @@ export async function extractInteractions(
         const htmlEl = el as HTMLElement;
         if (htmlEl.offsetParent === null && htmlEl.style.position !== "fixed") continue;
 
-        const text = (htmlEl.textContent ?? "").trim().slice(0, 100);
         const href = (el as HTMLAnchorElement).href || undefined;
         const role = el.getAttribute("role") ?? el.tagName.toLowerCase();
         const tag = el.tagName.toLowerCase();
+
+        // Visible text, falling back through accessibility attributes so
+        // icon-only links/buttons still get a readable label (issue #13)
+        let text = (htmlEl.textContent ?? "").trim().slice(0, 100);
+        if (!text) {
+          text =
+            el.getAttribute("aria-label")?.trim() ||
+            el.getAttribute("title")?.trim() ||
+            (el.querySelector("img") as HTMLImageElement | null)?.alt?.trim() ||
+            "";
+        }
+        if (!text && href) {
+          try {
+            const path = new URL(href, window.location.href).pathname;
+            text = path === "/" ? "home" : path.split("/").filter(Boolean).pop() ?? "";
+          } catch { /* keep empty */ }
+        }
+        if (!text) text = role;
 
         const id = el.id ? `#${el.id}` : "";
         const classes = Array.from(el.classList).slice(0, 2).join(".");

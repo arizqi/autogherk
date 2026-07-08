@@ -44,7 +44,7 @@ export async function loadConfig(
   const anthropicApiKey =
     resolveEnvValue(parsed.anthropicApiKey) ?? process.env.ANTHROPIC_API_KEY;
 
-  if (!geminiApiKey) {
+  if (!geminiApiKey && !options.fromAnalysis) {
     throw new Error(
       "Gemini API key required. Set GEMINI_API_KEY env var or add geminiApiKey to .autogherkrc.json",
     );

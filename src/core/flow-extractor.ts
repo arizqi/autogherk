@@ -11,7 +11,7 @@ import type {
  * Extract Gherkin features from the exploration graph.
  * Each top-level screen becomes a Feature; each path through connected edges becomes a Scenario.
  */
-export function extractFlows(graph: ExplorationGraph): GherkinFeature[] {
+export function extractFlows(graph: ExplorationGraph, maxPathDepth = 6): GherkinFeature[] {
   const clusters = clusterByFeature(graph);
   const features: GherkinFeature[] = [];
 
@@ -19,7 +19,7 @@ export function extractFlows(graph: ExplorationGraph): GherkinFeature[] {
     const screen = graph.nodes.get(screenId);
     if (!screen) continue;
 
-    const scenarios = buildScenarios(screen, edges, graph);
+    const scenarios = buildScenarios(screen, edges, graph, maxPathDepth);
     if (scenarios.length === 0) continue;
 
     features.push({
@@ -129,6 +129,7 @@ function buildScenarios(
   rootScreen: ScreenNode,
   edges: Edge[],
   graph: ExplorationGraph,
+  maxPathDepth = 6,
 ): GherkinScenario[] {
   const scenarios: GherkinScenario[] = [];
 
@@ -141,7 +142,7 @@ function buildScenarios(
   }
 
   // Find all paths from root (DFS, capped depth to prevent explosion)
-  const paths = findPaths(rootScreen.id, edgesBySource, graph, 6);
+  const paths = findPaths(rootScreen.id, edgesBySource, graph, maxPathDepth);
 
   for (const path of paths) {
     const scenario = pathToScenario(path, graph);
@@ -154,6 +155,8 @@ function buildScenarios(
 /**
  * DFS to find all paths from a start node, up to maxDepth edges.
  */
+const MAX_PATHS_PER_ROOT = 50;
+
 function findPaths(
   startId: string,
   edgesBySource: Map<string, Edge[]>,
@@ -162,7 +165,14 @@ function findPaths(
 ): Edge[][] {
   const results: Edge[][] = [];
 
-  function dfs(current: string, path: Edge[], visited: Set<string>) {
+  function dfs(
+    current: string,
+    path: Edge[],
+    visitedEdges: Set<string>,
+    visitedNodes: Set<string>,
+  ) {
+    if (results.length >= MAX_PATHS_PER_ROOT) return;
+
     const outgoing = edgesBySource.get(current) ?? [];
 
     if (outgoing.length === 0 || path.length >= maxDepth) {
@@ -171,22 +181,34 @@ function findPaths(
     }
 
     for (const edge of outgoing) {
-      if (visited.has(edge.id)) continue;
-      visited.add(edge.id);
+      if (results.length >= MAX_PATHS_PER_ROOT) return;
+      if (visitedEdges.has(edge.id)) continue;
+
+      // Self-loops (click that stays on the same screen) become single-step
+      // scenarios rather than path segments — avoids infinite churn.
+      if (edge.to === edge.from) {
+        if (path.length === 0) results.push([edge]);
+        continue;
+      }
+
+      visitedEdges.add(edge.id);
       path.push(edge);
 
-      if (edge.to && !visited.has(edge.to)) {
-        dfs(edge.to, path, visited);
+      // Node-level cycle cut: never revisit a screen within one path
+      if (edge.to && !visitedNodes.has(edge.to)) {
+        visitedNodes.add(edge.to);
+        dfs(edge.to, path, visitedEdges, visitedNodes);
+        visitedNodes.delete(edge.to);
       } else {
         results.push([...path]);
       }
 
       path.pop();
-      visited.delete(edge.id);
+      visitedEdges.delete(edge.id);
     }
   }
 
-  dfs(startId, [], new Set());
+  dfs(startId, [], new Set(), new Set([startId]));
   return results;
 }
 
